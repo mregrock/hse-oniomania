@@ -1,5 +1,9 @@
 version: '3.8'
 
+networks:
+  app_network:
+    driver: bridge
+
 services:
   zookeeper:
     image: confluentinc/cp-zookeeper:7.0.1
@@ -8,6 +12,8 @@ services:
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - app_network
 
   kafka:
     image: confluentinc/cp-kafka:7.0.1
@@ -23,23 +29,17 @@ services:
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_INTERNAL:PLAINTEXT
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092,PLAINTEXT_INTERNAL://kafka:29092
       KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,PLAINTEXT_INTERNAL://0.0.0.0:29092
+      KAFKA_HEAP_OPTS: "-Xms256m -Xmx256m"
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
-
-  kafka-rest-proxy:
-    image: confluentinc/cp-kafka-rest:7.0.1
-    container_name: kafka-rest-proxy
-    platform: linux/amd64
-    depends_on:
-      - kafka
-      - zookeeper
-    ports:
-      - "8082:8082"
-    environment:
-      KAFKA_REST_HOST_NAME: kafka-rest-proxy
-      KAFKA_REST_BOOTSTRAP_SERVERS: 'kafka:29092'
-      KAFKA_REST_LISTENERS: "http://0.0.0.0:8082"
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "9092"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app_network
 
   postgres-orders:
     image: postgres:14-alpine
@@ -52,6 +52,13 @@ services:
       POSTGRES_DB: orders_db
     volumes:
       - postgres_orders_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d orders_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app_network
 
   postgres-payments:
     image: postgres:14-alpine
@@ -64,6 +71,13 @@ services:
       POSTGRES_DB: payments_db
     volumes:
       - postgres_payments_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d payments_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app_network
 
   payments-service:
     build:
@@ -71,8 +85,10 @@ services:
       dockerfile: Dockerfile
     container_name: payments-service
     depends_on:
-      - kafka
-      - postgres-payments
+      kafka:
+        condition: service_healthy
+      postgres-payments:
+        condition: service_healthy
     ports:
       - "8081:8080"
     environment:
@@ -82,6 +98,30 @@ services:
       - DB_USER=user
       - DB_PASSWORD=password
       - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+    networks:
+      - app_network
+
+  order-service:
+    build:
+      context: ./order-service
+      dockerfile: Dockerfile
+    container_name: order-service
+    depends_on:
+      kafka:
+        condition: service_healthy
+      postgres-orders:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      - DB_HOST=postgres-orders
+      - DB_PORT=5432
+      - DB_NAME=orders_db
+      - DB_USER=user
+      - DB_PASSWORD=password
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:29092
+    networks:
+      - app_network
 
 volumes:
   postgres_orders_data:
