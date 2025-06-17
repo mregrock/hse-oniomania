@@ -19,9 +19,10 @@ public class OrderKafkaListener {
 
   @KafkaListener(topics = "orders.created", groupId = "payments-group")
   public void handleOrderCreated(String message) {
+    log.info("Received raw order created event: {}", message);
     try {
         OrderCreatedEvent event = objectMapper.readValue(message, OrderCreatedEvent.class);
-        log.info("Received order created event: {}", event);
+        log.info("Deserialized order created event: {}", event);
         accountService.processPayment(event);
     } catch (IOException e) {
         log.error("Failed to deserialize message: {}", message, e);

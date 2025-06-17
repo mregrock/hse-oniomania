@@ -68,26 +68,26 @@ public class AccountServiceImpl implements AccountService {
 
     account.setBalance(account.getBalance().add(request.getAmount()));
     accountRepository.save(account);
+
     try {
-      String payload = objectMapper.writeValueAsString(request);
-      OutboxEvent event = OutboxEvent.builder()
-              .aggregateType("Account")
-              .aggregateId(userId.toString())
-              .eventType("DEPOSIT_SUCCESS")
-              .payload(payload)
-              .timestamp(LocalDateTime.now())
-              .build();
-      outboxEventRepository.save(event);
-      log.info("Outbox event created for user {}", userId);
+        String payload = objectMapper.writeValueAsString(request);
+        OutboxEvent outboxEvent = OutboxEvent.builder()
+                .aggregateType("Account")
+                .aggregateId(userId.toString())
+                .topic("account.deposited")
+                .payload(payload)
+                .timestamp(LocalDateTime.now())
+                .build();
+        outboxEventRepository.save(outboxEvent);
     } catch (JsonProcessingException e) {
-      log.error("Failed to serialize payload for user {}", userId, e);
-      throw new RuntimeException("Failed to create outbox event", e);
+        throw new RuntimeException("Failed to create outbox event for deposit", e);
     }
   }
 
 @Override
 @Transactional
 public void processPayment(OrderCreatedEvent event) {
+  log.info("Processing payment for orderId: {}", event.getOrderId());
   if (processedEventRepository.existsById(event.getEventId())) {
     log.warn("Event {} has already been processed.", event.getEventId());
     return;
@@ -116,16 +116,19 @@ public void processPayment(OrderCreatedEvent event) {
             .status(paymentStatus)
             .build();
     String payload = objectMapper.writeValueAsString(paymentEvent);
+    log.info("Created PaymentEvent payload: {}", payload);
 
     OutboxEvent outboxEvent = OutboxEvent.builder()
             .aggregateType("Payment")
             .aggregateId(event.getOrderId().toString())
-            .eventType(paymentStatus)
+            .topic("payments.processed")
             .payload(payload)
             .timestamp(LocalDateTime.now())
             .build();
     outboxEventRepository.save(outboxEvent);
+    log.info("Saved outbox event for orderId: {}", outboxEvent.getAggregateId());
     processedEventRepository.save(new ProcessedEvent(event.getEventId()));
+    log.info("Saved processed event for eventId: {}", event.getEventId());
 
     log.info("Outbox event {} created for order {}", paymentStatus, event.getOrderId());
   } catch (JsonProcessingException e) {

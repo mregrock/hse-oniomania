@@ -18,18 +18,19 @@ public class EventScheduler {
 
   private final OutboxEventRepository outboxEventRepository;
   private final KafkaTemplate<String, String> kafkaTemplate;
-  private static final String TOPIC = "payments.processed";
 
   @Scheduled(fixedDelay = 10000)
   @Transactional
   public void processOutboxEvents() {
     List<OutboxEvent> events = outboxEventRepository.findTop100ByOrderByTimestampAsc();
     if (!events.isEmpty()) {
-      log.info("Found {} events to process", events.size());
+      log.info("Found {} payment events to process", events.size());
       for (OutboxEvent event : events) {
         try {
-            kafkaTemplate.send(TOPIC, event.getAggregateId(), event.getPayload());
+            log.info("Sending event id: {} to topic: {}", event.getId(), event.getTopic());
+            kafkaTemplate.send(event.getTopic(), event.getAggregateId(), event.getPayload());
             outboxEventRepository.delete(event);
+            log.info("Event id: {} sent and deleted from outbox", event.getId());
         } catch (Exception e) {
             log.error("Failed to send event {} to Kafka", event.getId(), e);
         }

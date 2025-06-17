@@ -19,21 +19,28 @@ public class OutboxScheduler {
   private final OutboxRepository outboxRepository;
   private final KafkaTemplate<String, String> kafkaTemplate;
 
-  @Scheduled(fixedDelay = 10000)
+  @Scheduled(fixedRate = 10000)
   @Transactional
-  public void processOutboxEvents() {
-    List<Outbox> events = outboxRepository.findTop100ByOrderByCreatedAtAsc();
-    if (!events.isEmpty()) {
-      log.info("Found {} events to process", events.size());
-      for (Outbox event : events) {
-        log.info("Processing outbox event: {}", event.getId());
-        try {
-          kafkaTemplate.send(event.getTopic(), event.getAggregateId(), event.getPayload()).get();
-          log.info("Message for aggregate id {} sent successfully to topic {}", event.getAggregateId(), event.getTopic());
-          outboxRepository.delete(event);
-        } catch (Exception e) {
-          log.error("Failed to send message for aggregate id {} to topic {}. It will be retried.", event.getAggregateId(), event.getTopic(), e);
-        }
+  public void processOutbox() {
+    List<Outbox> events = outboxRepository.findAll();
+    if (events.isEmpty()) {
+      return;
+    }
+    log.info("Found {} events to process", events.size());
+    for (Outbox event : events) {
+      log.info("Processing outbox event: {}", event.getId());
+      try {
+        kafkaTemplate.send(event.getTopic(), event.getAggregateId(), event.getPayload())
+              .whenComplete((result, ex) -> {
+                if (ex == null) {
+                  log.info("Message for aggregate id {} sent successfully to topic {}", event.getAggregateId(), event.getTopic());
+                  outboxRepository.delete(event);
+                } else {
+                  log.error("Failed to send message for aggregate id {}", event.getAggregateId(), ex);
+                }
+              });
+      } catch (Exception e) {
+        log.error("Error sending event to kafka, id: {}", event.getId(), e);
       }
     }
   }

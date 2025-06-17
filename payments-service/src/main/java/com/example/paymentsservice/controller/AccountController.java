@@ -4,8 +4,11 @@ import com.example.paymentsservice.dto.AccountResponse;
 import com.example.paymentsservice.dto.CreateAccountRequest;
 import com.example.paymentsservice.dto.DepositRequest;
 import com.example.paymentsservice.service.AccountService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 /**
@@ -14,6 +17,7 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/api/v1/payments/accounts")
 @RequiredArgsConstructor
+@Slf4j
 public class AccountController {
 
   private final AccountService accountService;
@@ -44,8 +48,10 @@ public class AccountController {
    * @param request The request containing the amount to deposit.
    */
   @PostMapping("/{userId}/deposit")
-  @ResponseStatus(HttpStatus.OK)
-  public void deposit(@PathVariable Long userId, @RequestBody DepositRequest request) {
+  public ResponseEntity<Void> deposit(@PathVariable Long userId, @RequestBody @Valid DepositRequest request) {
+    log.info("Received request to deposit {} for user {}", request.getAmount(), userId);
     accountService.depositToAccount(userId, request);
+    log.info("Deposit request for user {} processed", userId);
+    return ResponseEntity.ok().build();
   }
 }

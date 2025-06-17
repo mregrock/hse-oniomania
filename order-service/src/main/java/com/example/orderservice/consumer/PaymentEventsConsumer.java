@@ -24,9 +24,11 @@ public class PaymentEventsConsumer {
   @KafkaListener(topics = "payments.processed")
   @Transactional
   public void consumePaymentProcessedEvent(String message) {
-    log.info("Received payment processed event: {}", message);
+    log.info("Received payment processed event raw message: {}", message);
     try {
       PaymentProcessedEvent event = objectMapper.readValue(message, PaymentProcessedEvent.class);
+      log.info("Deserialized payment event: {}", event);
+
       Order order = orderRepository.findById(event.getOrderId())
             .orElseThrow(() -> new OrderNotFoundException("Order not found: " + event.getOrderId()));
 
@@ -35,16 +37,17 @@ public class PaymentEventsConsumer {
         return;
       }
 
-      if (event.isSuccess()) {
+      if ("PAYMENT_SUCCESS".equals(event.getStatus())) {
         order.setStatus(OrderStatus.FINISHED);
       } else {
         order.setStatus(OrderStatus.CANCELLED);
       }
+      log.info("Updating order {} to status {}", order.getId(), order.getStatus());
       orderRepository.save(order);
       log.info("Order {} status updated to {}", order.getId(), order.getStatus());
 
     } catch (JsonProcessingException e) {
-        log.error("Failed to deserialize payment processed event", e);
+        log.error("Failed to deserialize payment processed event: {}", message, e);
     } catch (Exception e) {
         log.error("Error processing payment processed event", e);
     }
